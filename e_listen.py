@@ -2,6 +2,7 @@ from web3 import Web3
 import json
 import asyncio
 import threading
+from decimal import *
 w3 = Web3(Web3.HTTPProvider('https://mainnet.infura.io/v3/85904b7115794ecfabbd00f61782cf62'))
 
 contract_address = '0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7'
@@ -10,19 +11,110 @@ contract_abi = json.loads(
 
 contract = w3.eth.contract(address=contract_address, abi=contract_abi)
 
-# print(contract.events.TokenExchange.get_logs(fromBlock=16974237))
-# print(contract.caller().balances(0))
+curve_token_contract_address = '0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490'
+curve_token_contract_abi = json.loads(
+    '[{"name":"Transfer","inputs":[{"type":"address","name":"_from","indexed":true},{"type":"address","name":"_to","indexed":true},{"type":"uint256","name":"_value","indexed":false}],"anonymous":false,"type":"event"},{"name":"Approval","inputs":[{"type":"address","name":"_owner","indexed":true},{"type":"address","name":"_spender","indexed":true},{"type":"uint256","name":"_value","indexed":false}],"anonymous":false,"type":"event"},{"outputs":[],"inputs":[{"type":"string","name":"_name"},{"type":"string","name":"_symbol"},{"type":"uint256","name":"_decimals"},{"type":"uint256","name":"_supply"}],"stateMutability":"nonpayable","type":"constructor"},{"name":"set_minter","outputs":[],"inputs":[{"type":"address","name":"_minter"}],"stateMutability":"nonpayable","type":"function","gas":36247},{"name":"set_name","outputs":[],"inputs":[{"type":"string","name":"_name"},{"type":"string","name":"_symbol"}],"stateMutability":"nonpayable","type":"function","gas":178069},{"name":"totalSupply","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":1211},{"name":"allowance","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"address","name":"_owner"},{"type":"address","name":"_spender"}],"stateMutability":"view","type":"function","gas":1549},{"name":"transfer","outputs":[{"type":"bool","name":""}],"inputs":[{"type":"address","name":"_to"},{"type":"uint256","name":"_value"}],"stateMutability":"nonpayable","type":"function","gas":74832},{"name":"transferFrom","outputs":[{"type":"bool","name":""}],"inputs":[{"type":"address","name":"_from"},{"type":"address","name":"_to"},{"type":"uint256","name":"_value"}],"stateMutability":"nonpayable","type":"function","gas":111983},{"name":"approve","outputs":[{"type":"bool","name":""}],"inputs":[{"type":"address","name":"_spender"},{"type":"uint256","name":"_value"}],"stateMutability":"nonpayable","type":"function","gas":39078},{"name":"mint","outputs":[{"type":"bool","name":""}],"inputs":[{"type":"address","name":"_to"},{"type":"uint256","name":"_value"}],"stateMutability":"nonpayable","type":"function","gas":75808},{"name":"burnFrom","outputs":[{"type":"bool","name":""}],"inputs":[{"type":"address","name":"_to"},{"type":"uint256","name":"_value"}],"stateMutability":"nonpayable","type":"function","gas":75826},{"name":"name","outputs":[{"type":"string","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":7823},{"name":"symbol","outputs":[{"type":"string","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":6876},{"name":"decimals","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":1481},{"name":"balanceOf","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"address","name":"arg0"}],"stateMutability":"view","type":"function","gas":1665}]'
+)
+
+contract_curve = w3.eth.contract(address=curve_token_contract_address, abi=curve_token_contract_abi)
+
 
 POLLING_INTERVAL = 10
-print("Listening for events on Curve.fi ...")
+N_COINS = 3
+FEE = 1000000 / 10**10 ## hardcoded for now
+AMP = 2000 ## hardcoded for now
+DAI_multiplier = 1e12
+PRECISION = Decimal(1e18)
+
+## [DAI, USDC, USDT], in-order
+XP = [
+    Decimal(contract.caller().balances(0)),
+    Decimal(contract.caller().balances(1) * DAI_multiplier),
+    Decimal(contract.caller().balances(2) * DAI_multiplier)]
+
+getcontext().prec = 64
 
 CURRENT_EVENT = None
 
+def _get_D():
+    global XP
+
+    S = 0
+    Dprev = 0
+
+    for _x in XP:
+        S += _x
+    if S == 0:
+        return 0
+
+    D = S
+    Ann = AMP * N_COINS
+    for _i in range(255):
+        D_P = D
+        for _x in XP:
+            D_P = D_P * D / (_x * N_COINS)
+        Dprev = D
+        D = (Ann * S + D_P * N_COINS) * D / ((Ann - 1) * D + (N_COINS + 1) * D_P)
+        if D > Dprev:
+            if D - Dprev <= 1:
+                return D
+        else:
+            if Dprev - D <= 1:
+                return D
+    raise Exception("Convergence not reached")
+
+D = _get_D()
+
+def _get_y(i, j, x):
+
+    assert i != j       # dev: same coin
+    assert j >= 0       # dev: j below zero
+    assert j < N_COINS  # dev: j above N_COINS
+
+    # should be unreachable, but good for safety
+    assert i >= 0
+    assert i < N_COINS
+
+    A = AMP
+    Ann = A * N_COINS
+    c = D
+    S = 0
+    _x = 0
+    y_prev = 0
+
+    for _i in range(N_COINS):
+        if _i == i:
+            _x = x
+        elif _i != j:
+            _x = XP[_i]
+        else:
+            continue
+        S += _x
+        c = c * D / (_x * N_COINS)
+    c = c * D / (Ann * N_COINS)
+    b = S + D / Ann  # - D
+    y = D
+    for _i in range(255):
+        y_prev = y
+        y = (y*y + c) / (2 * y + b - D)
+        if abs(y - y_prev) <= 1:
+            return y
+    raise Exception("Convergence not reached")
+
 def handle_event(event):
-    global CURRENT_EVENT
+    global CURRENT_EVENT, D, XP
+
     CURRENT_EVENT = event
     print("Server received an event: ... ")
     print(event)
+
+    ## recalculate D
+    D = _get_D()
+    ## recalculate XP
+    XP = [
+        Decimal(contract.caller().balances(0)),
+        Decimal(contract.caller().balances(1) * DAI_multiplier),
+        Decimal(contract.caller().balances(2) * DAI_multiplier)]
 
 async def log_loop(event_filter, poll_interval):
     while True:
@@ -40,11 +132,24 @@ def loop_in_thread(loop):
 
     asyncio.set_event_loop(loop)
     try:
+        print("Listening for events on Curve.fi ...")
         loop.run_until_complete(
             asyncio.gather(
                 *[log_loop(event_filter, POLLING_INTERVAL) for event_filter in event_filters]))
     finally:
         loop.close()
+
+
+def calc_virt_price():
+    curve_total_supply = contract_curve.caller().totalSupply()
+    print(D * PRECISION / Decimal(curve_total_supply)) 
+
+def calc_dy(i, j, dx):
+    x = XP[i] + dx * Decimal(DAI_multiplier)
+    y = _get_y(i, j, x)
+    dy = XP[j] - y
+    fee = Decimal(FEE) * dy
+    print((dy - fee) / Decimal(DAI_multiplier))
 
 def main():
 
@@ -52,9 +157,23 @@ def main():
     t = threading.Thread(target=loop_in_thread, args=(loop,))
     t.start()
 
+    COMMANDS = ['get_virtual_price', 'get_dy']
+
     while True:
-        command = input("type something to get lastest event: ")
-        print(CURRENT_EVENT)
+        command = input("type your command, followed by args: ")
+        command = command.split()
+        if command[0] not in COMMANDS:
+            print("command not supported... try again")
+        if command[0] == 'get_virtual_price':
+            print("calculating virtual price of this 3pool...")
+            calc_virt_price()
+        if command[0] == 'get_dy':
+            if len(command) != 4:
+                print("incorrect amount of arguments")
+                continue
+            print("calculating dy with supplied arguments")
+            i, j, dx = int(command[1]), int(command[2]), int(command[3])
+            calc_dy(i, j, dx)
 
     print("next steps")
 

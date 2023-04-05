@@ -95,7 +95,7 @@ def get_dy(xp, i: int, j: int, _dx: int) -> int:
     y = _get_y(i, j, x, xp, AMP)
     dy = xp[j] - y
     fee = Decimal(FEE) * dy
-    return dy - fee
+    return (dy - fee) / Decimal(DAI_multiplier)
 
 
 def exchange(xp, i: int, j: int, _dx: int, _min_dy: int) -> int:
@@ -107,7 +107,7 @@ def exchange(xp, i: int, j: int, _dx: int, _min_dy: int) -> int:
 
     dy = dy - fee
     assert dy >= _min_dy, "Exchange resulted in fewer coins than expected"
-    return dy
+    return dy / Decimal(DAI_multiplier)
 
 
 from web3 import Web3
@@ -156,8 +156,8 @@ print(dd * PRECISION / Decimal(curve_total_supply))
 print(contract.caller().get_virtual_price())
 print("****")
 
-dydy = get_dy(xp=xpxp, i=1, j=0, _dx=1)
-print(dydy)
-
-# dydy = exchange(xp=xpxp, i=1, j=2, _dx=1000, _min_dy = 0)
+# dydy = get_dy(xp=xpxp, i=1, j=2, _dx=1)
 # print(dydy)
+
+dydy = exchange(xp=xpxp, i=1, j=0, _dx=1000, _min_dy = 0)
+print(dydy)
