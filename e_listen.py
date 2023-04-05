@@ -67,6 +67,9 @@ D = _get_D()
 
 def _get_y(i, j, x):
 
+    # print("current XP and D: ")
+    # print(XP, D)
+
     assert i != j       # dev: same coin
     assert j >= 0       # dev: j below zero
     assert j < N_COINS  # dev: j above N_COINS
@@ -108,13 +111,17 @@ def handle_event(event):
     print("Server received an event: ... ")
     print(event)
 
-    ## recalculate D
-    D = _get_D()
+    # print(XP, D)
     ## recalculate XP
     XP = [
         Decimal(contract.caller().balances(0)),
         Decimal(contract.caller().balances(1) * DAI_multiplier),
         Decimal(contract.caller().balances(2) * DAI_multiplier)]
+    ## recalculate D
+    D = _get_D()
+
+    # print(XP, D)
+    print("server finished updating XP and D...")
 
 async def log_loop(event_filter, poll_interval):
     while True:
@@ -142,6 +149,7 @@ def loop_in_thread(loop):
 
 def calc_virt_price():
     curve_total_supply = contract_curve.caller().totalSupply()
+    print("current virtual price is: ")
     print(D * PRECISION / Decimal(curve_total_supply)) 
 
 def calc_dy(i, j, dx):
@@ -149,6 +157,7 @@ def calc_dy(i, j, dx):
     y = _get_y(i, j, x)
     dy = XP[j] - y
     fee = Decimal(FEE) * dy
+    print("currently dy for given dx is: ")
     print((dy - fee) / Decimal(DAI_multiplier))
 
 def main():
