@@ -1,6 +1,7 @@
 from web3 import Web3
 import json
 import asyncio
+import threading
 w3 = Web3(Web3.HTTPProvider('https://mainnet.infura.io/v3/85904b7115794ecfabbd00f61782cf62'))
 
 contract_address = '0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7'
@@ -15,7 +16,12 @@ contract = w3.eth.contract(address=contract_address, abi=contract_abi)
 POLLING_INTERVAL = 10
 print("Listening for events on Curve.fi ...")
 
+CURRENT_EVENT = None
+
 def handle_event(event):
+    global CURRENT_EVENT
+    CURRENT_EVENT = event
+    print("Server received an event: ... ")
     print(event)
 
 async def log_loop(event_filter, poll_interval):
@@ -24,18 +30,32 @@ async def log_loop(event_filter, poll_interval):
             handle_event(PairCreated)
         await asyncio.sleep(poll_interval)
 
-def main():
+def loop_in_thread(loop):
+    global CURRENT_EVENT
     event_filters = [contract.events.TokenExchange.create_filter(fromBlock='latest'),
                     contract.events.AddLiquidity.create_filter(fromBlock='latest'),
                     contract.events.RemoveLiquidity.create_filter(fromBlock='latest'),
                     contract.events.RemoveLiquidityImbalance.create_filter(fromBlock='latest'),
                     contract.events.RemoveLiquidityOne.create_filter(fromBlock='latest')]
-    loop = asyncio.get_event_loop()
+
+    asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(
             asyncio.gather(
                 *[log_loop(event_filter, POLLING_INTERVAL) for event_filter in event_filters]))
     finally:
         loop.close()
+
+def main():
+
+    loop = asyncio.get_event_loop()
+    t = threading.Thread(target=loop_in_thread, args=(loop,))
+    t.start()
+
+    while True:
+        command = input("type something to get lastest event: ")
+        print(CURRENT_EVENT)
+
+    print("next steps")
 
 main()

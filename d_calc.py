@@ -7,10 +7,11 @@ N_COINS = 3
 uint256 = int
 int128 = int
 A_PRECISION = 1
-FEE = 4000000 / 10**10
+FEE = 1000000 / 10**10
 ADMIN_FEE = 5000000000 / 10**10
 FEE_INDEX = 2
 AMP = 2000
+DAI_multiplier = 1e12
 
 def _get_D(_xp: List[uint256], _amp: uint256) -> uint256:
     """
@@ -90,16 +91,15 @@ def _get_y(i: int128, j: int128, x: uint256, _xp: List[uint256], amp: int) -> ui
     raise Exception("Convergence not reached")
 
 def get_dy(xp, i: int, j: int, _dx: int) -> int:
-    x = xp[i] + _dx
+    x = xp[i] + _dx * Decimal(DAI_multiplier)
     y = _get_y(i, j, x, xp, AMP)
-    print("my y is : "+ str(y))
     dy = xp[j] - y
     fee = Decimal(FEE) * dy
     return dy - fee
 
 
 def exchange(xp, i: int, j: int, _dx: int, _min_dy: int) -> int:
-    x = xp[i] + _dx
+    x = xp[i] + _dx * Decimal(DAI_multiplier)
     y = _get_y(i, j, x, xp, AMP)
 
     dy = xp[j] - y
@@ -145,9 +145,6 @@ USDT_balance = Decimal(contract.caller().balances(2) * DAI_multiplier)
 
 getcontext().prec = 64
 
-print(type(USDC_balance))
-print(USDC_balance+1)
-
 xpxp = [DAI_balance, USDC_balance, USDT_balance]
 # print(xpxp)
 ampamp = 2000
@@ -159,7 +156,7 @@ print(dd * PRECISION / Decimal(curve_total_supply))
 print(contract.caller().get_virtual_price())
 print("****")
 
-dydy = get_dy(xp=xpxp, i=1, j=0, _dx=10)
+dydy = get_dy(xp=xpxp, i=1, j=0, _dx=1)
 print(dydy)
 
 # dydy = exchange(xp=xpxp, i=1, j=2, _dx=1000, _min_dy = 0)
