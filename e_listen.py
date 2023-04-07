@@ -95,14 +95,8 @@ def _get_y(i, j, x):
         S += _x
         c = c * D / (_x * N_COINS)
     c = c * D / (Ann * N_COINS)
-    b = S + D / Ann  # - D
-    y = D
-    for _i in range(255):
-        y_prev = y
-        y = (y*y + c) / (2 * y + b - D)
-        if abs(y - y_prev) <= 1:
-            return y
-    raise Exception("Convergence not reached")
+    b = S + D / Ann - D
+    return (-b + (b**2 + 4*c).sqrt()) / 2
 
 def handle_event(event):
     global CURRENT_EVENT, D, XP
